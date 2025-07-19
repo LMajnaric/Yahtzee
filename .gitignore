@@ -1,2 +1,6 @@
 /.pytest_cache
 /.venv
+
+# py files
+__pycache__/
+*.py[cod]
