@@ -177,18 +177,19 @@ class YahtzeeHumanUI:
         announce_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         ttk.Label(announce_frame, text="Column 4 Announcement:", 
-                 font=("Arial", 10, "bold")).pack(anchor="w")
+                font=("Arial", 10, "bold")).pack(anchor="w")
         
         self.announce_var = tk.StringVar()
         self.announce_combo = ttk.Combobox(announce_frame, textvariable=self.announce_var,
-                                         state="readonly", width=15)
+                                        state="readonly", width=15)
         self.announce_combo.pack(anchor="w", pady=2)
         
-        ttk.Button(announce_frame, text="Announce", 
-                  command=self.make_announcement).pack(anchor="w", pady=2)
+        self.announce_button = ttk.Button(announce_frame, text="Announce", 
+                                        command=self.make_announcement)
+        self.announce_button.pack(anchor="w", pady=2)
         
         self.announcement_label = ttk.Label(announce_frame, text="No announcement", 
-                                          foreground="red")
+                                        foreground="red")
         self.announcement_label.pack(anchor="w", pady=2)
         
         # Right side: Possible scores
@@ -196,7 +197,7 @@ class YahtzeeHumanUI:
         scores_info_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
         
         ttk.Label(scores_info_frame, text="Possible Scores:", 
-                 font=("Arial", 10, "bold")).pack(anchor="w")
+                font=("Arial", 10, "bold")).pack(anchor="w")
         
         self.possible_scores_text = tk.Text(scores_info_frame, height=4, width=40)
         self.possible_scores_text.pack(fill="both", expand=True)
@@ -216,6 +217,11 @@ class YahtzeeHumanUI:
         self.current_roll = 0
         self.selected_dice = []
         self.announced_category = None
+        
+        # Reset announcement controls
+        self.announce_button.config(state="disabled")
+        self.announce_combo.config(state="disabled")
+        self.announcement_label.config(text="No announcement", foreground="red")
         
         self.update_display()
         self.create_dice_buttons()
@@ -269,6 +275,16 @@ class YahtzeeHumanUI:
             self.update_roll_info()
             self.update_announce_options()
             
+            # Enable announcements only after first roll, disable after first roll
+            if self.current_roll == 1:
+                self.announce_button.config(state="normal")
+                self.announce_combo.config(state="readonly")
+            else:
+                # Disable announcements after first roll if not already announced
+                if not self.announced_category:
+                    self.announce_button.config(state="disabled")
+                    self.announce_combo.config(state="disabled")
+            
         except Exception as e:
             messagebox.showerror("Error", f"Error rolling dice: {e}")
     
@@ -306,6 +322,12 @@ class YahtzeeHumanUI:
     
     def make_announcement(self):
         """Make an announcement for column 4"""
+        # Can only announce after first roll
+        if self.current_roll != 1:
+            messagebox.showwarning("Invalid Timing", 
+                                "You can only announce after the first roll!")
+            return
+        
         if not self.announce_var.get():
             messagebox.showwarning("No Selection", "Please select a category to announce!")
             return
@@ -321,7 +343,15 @@ class YahtzeeHumanUI:
         if category and self.game.announce_category(4, category):
             self.announced_category = category
             self.announcement_label.config(text=f"Announced: {category_name}", 
-                                         foreground="green")
+                                        foreground="green")
+            
+            # Disable announcement controls after announcing
+            self.announce_button.config(state="disabled")
+            self.announce_combo.config(state="disabled")
+            
+            # Immediately update button states to enable the announced category
+            self.update_button_states()
+            
             messagebox.showinfo("Announcement", f"You announced: {category_name}")
         else:
             messagebox.showerror("Invalid", "Cannot announce this category!")
@@ -368,12 +398,15 @@ class YahtzeeHumanUI:
         for var in self.dice_vars:
             var.set(False)
         
-        # Clear announcements
+        # Reset announcements
         self.announcement_label.config(text="No announcement", foreground="red")
+        self.announce_button.config(state="disabled")
+        self.announce_combo.config(state="disabled")
         self.possible_scores_text.delete(1.0, tk.END)
         
         self.update_roll_info()
-    
+        self.update_button_states()
+
     def update_display(self):
         """Update all display elements"""
         state = self.game.get_game_state()
@@ -398,12 +431,14 @@ class YahtzeeHumanUI:
                 score = state.scores[column][category]
                 self.category_buttons[column][category]['score_label'].config(text=str(score))
             
-            # Update button state (enabled/disabled)
-            available = self.game.get_available_categories(column)
-            if category in available:
-                self.category_buttons[column][category]['button'].config(state="normal")
-            else:
-                self.category_buttons[column][category]['button'].config(state="disabled")
+            # Update button state (enabled/disabled) - but NOT for column 4 here
+            # Column 4 is handled separately in update_button_states()
+            if column != 4:
+                available = self.game.get_available_categories(column)
+                if category in available:
+                    self.category_buttons[column][category]['button'].config(state="normal")
+                else:
+                    self.category_buttons[column][category]['button'].config(state="disabled")
         
         # Update totals
         bonus = state.column_bonuses[column]
@@ -417,11 +452,41 @@ class YahtzeeHumanUI:
     def update_button_states(self):
         """Update button enabled/disabled states"""
         # Enable/disable roll button
-        if self.current_roll >= 3 or not self.current_dice:
-            if self.current_roll >= 3:
-                self.roll_button.config(text="Must Score", state="disabled")
-            else:
-                self.roll_button.config(text="Roll Dice", state="normal")
+        if self.current_roll >= 3:
+            self.roll_button.config(text="Must Score", state="disabled")
+        else:
+            self.roll_button.config(text="Roll Dice", state="normal")
+        
+        # If column 4 announcement is made, disable all other columns
+        if self.announced_category:
+            # Disable all buttons in columns 1, 2, 3
+            for column in range(1, 4):
+                for category in Category:
+                    self.category_buttons[column][category]['button'].config(state="disabled")
+            
+            # Handle column 4: only enable the announced category
+            available_col4 = self.game.get_available_categories(4)
+            for category in Category:
+                if category == self.announced_category and category in available_col4:
+                    self.category_buttons[4][category]['button'].config(state="normal")
+                else:
+                    self.category_buttons[4][category]['button'].config(state="disabled")
+        
+        else:
+            # No announcement made, handle all columns normally
+            
+            # Handle columns 1, 2, 3 normally
+            for column in range(1, 4):
+                available = self.game.get_available_categories(column)
+                for category in Category:
+                    if category in available:
+                        self.category_buttons[column][category]['button'].config(state="normal")
+                    else:
+                        self.category_buttons[column][category]['button'].config(state="disabled")
+            
+            # Handle column 4: disable all buttons when no announcement
+            for category in Category:
+                self.category_buttons[4][category]['button'].config(state="disabled")
     
     def update_roll_info(self):
         """Update roll information display"""
